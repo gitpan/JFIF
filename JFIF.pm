@@ -1,5 +1,5 @@
 package JPEG::JFIF;
-$JPEG::JFIF::VERSION = '0.9.2';
+$JPEG::JFIF::VERSION = '0.9.3';
 use strict;
 
 sub new {
@@ -135,6 +135,7 @@ sub set_comment {
     my $header = $cl->get_raw("HEADER");
     my $buffer;
     my $zero = 0;
+    my $newheader;
     
     #$rest - tam gdzie sie zaczyna nastepny 8BIM za 2 120, czlyli 
     my $rest = $cl->{lastsize} - $cl->{lastgetposafter} + $cl->{last8binpos};
@@ -146,19 +147,16 @@ sub set_comment {
     $len = $len - length($old) + length($new);
 
     # to pieprzone 0x00 ktore sie pojawia
-    # Zrobilem tak:
-    # jesli na koncu jest to zero to:
-    #	jesli ilosc nowych znakow jest parzysta to dodaj 0x00
-    #	jesli ilosc nowych znakow jest nieparzysta to nie dodawaj
-    # jesli na konciu nie ma 0x00 to:
-    #   jesli nowych jest nieparzyscie to dodawaj
-    #	jesli ilosc nowych znakow jest parzysta to nie dodawaj
     # TEORETYCZNIE W MOIM ODCZUCIU TO POWINNO DZIALAC, ale nie wiem 
     # jak to sie bedzie sprawowalo !!!! trzeba przetestowac.
+    #######################################################################
     
     if (((substr($header,$cl->{lastgetposafter}+$rest,1))) == 0) { $zero = 1; }
-    if ($zero && ((length($new) % 2) == 0)) { $len++ }
-    if (!$zero && ((length($new) % 2) != 0)) { $len++ }
+
+    my $end = $zero;
+    for (my $ii=0;$ii<abs(length($old)-length($new));$ii++) { $end = !$end; }
+
+    if (!$end) { $len-- };
 
     substr($header,22,2) = pack("n",$len);
 
@@ -166,13 +164,10 @@ sub set_comment {
     $len2 = $len2 - length($old) + length($new);
     substr($header,48,2) = pack("n",$len2);
 
-    my $newheader;
-    
-	$newheader = substr($header,0,$cl->{lastgetpos}-2).$newlen.$new;
-	$newheader.= substr($header,$cl->{lastgetposafter},$rest);
-	if ($zero && ((length($new) % 2) == 0)) { $newheader.=pack("C",0); }
-	if (!$zero && ((length($new) % 2) != 0)) { $newheader.=pack("C",0); }
-	$newheader.= substr($header,$cl->{lastgetposafter}+$rest);
+    $newheader = substr($header,0,$cl->{lastgetpos}-2).$newlen.$new;
+    $newheader.= substr($header,$cl->{lastgetposafter},$rest);
+    if ($end == 1) { $newheader.=pack("C",0); }
+    $newheader.= substr($header,$cl->{lastgetposafter}+$rest+1);
     $cl->{header} = $newheader;
     return $newheader;
 }
@@ -190,17 +185,22 @@ sub write {
 
 __END__
 
+=head1 DOWNLOAD
+
+http://krzak.linux.net.pl/perl/JFIF-0.9.3.tar.gz
+
 =head1 NAME
 
 JPEG::JFIF - JFIF/JPEG tags operations.
 
 =head1 VERSION
 
-JFIF.pm v 0.9.2
+JFIF.pm v 0.9.3
 
 =head1 CHANGES
 
- 0.9 - fix caption add 0x00 in some situations. I don't know hwat it is, But have to be.
+ 0.9.3 - another rule to workaround for that stupid 0x00 in APP14 (I couldn't find it in JFIF documentation)
+ 0.9 - fix caption add 0x00 in some situations. I don't know what it is, But have to be.
  0.8 - can set comment (Caption) tag correctly (hihi)
  0.7 - can read all metatags
 
@@ -218,8 +218,9 @@ This module can read and set additional info that is set by Adobe Photoshop in j
     use strict;
 
     my $jfif = new JPEG::JFIF(filename=>"test.jpg");
-
-    my $caption = $jfif->get(2,120); # this give you "caption" from adobe. All formats are described in IPTC-NAA specification.
+    
+    # this give you "caption" from adobe. All formats are described in IPTC-NAA specification.
+    my $caption = $jfif->get(2,120); 
 
     $jfif->set_comment("this is my new caption");
 
