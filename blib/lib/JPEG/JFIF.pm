@@ -1,5 +1,5 @@
 package JPEG::JFIF;
-$JPEG::JFIF::VERSION = '0.9';
+$JPEG::JFIF::VERSION = '0.8';
 use strict;
 
 sub new {
@@ -31,11 +31,8 @@ sub get {
 		# int32 - Size
 		read(FILE,$buffer,4); 
 		my $size = unpack("N",substr($buffer,0,4));
-		$cl->{lastoctet} = $size;
 		
 		my $start = tell(FILE);
-		$cl->{last8binpos} = $start;
-		$cl->{lastsize} = $size;
 		for (my $i = 0; $i<$size;$i++) {
 		    seek(FILE,$start + $i,0);
 		    read(FILE,$buffer,1);
@@ -134,45 +131,18 @@ sub set_comment {
     my $old = $cl->get(2,120);
     my $header = $cl->get_raw("HEADER");
     my $buffer;
-    my $zero = 0;
     
-    #$rest - tam gdzie sie zaczyna nastepny 8BIM za 2 120, czlyli 
-    my $rest = $cl->{lastsize} - $cl->{lastgetposafter} + $cl->{last8binpos};
-    
-    my $newlen = pack("n",length($new));
     #zmieniam dlugosc    
     # 22 to jest 0xFFED - zmienic na znalezienie i zamiane po tym, a nie tak na sztywno
     my $len = unpack("n",substr($header,22,2));
     $len = $len - length($old) + length($new);
-
-    # to pieprzone 0x00 ktore sie pojawia
-    # Zrobilem tak:
-    # jesli na koncu jest to zero to:
-    #	jesli ilosc nowych znakow jest parzysta to dodaj 0x00
-    #	jesli ilosc nowych znakow jest nieparzysta to nie dodawaj
-    # jesli na konciu nie ma 0x00 to:
-    #   jesli nowych jest nieparzyscie to dodawaj
-    #	jesli ilosc nowych znakow jest parzysta to nie dodawaj
-    # TEORETYCZNIE W MOIM ODCZUCIU TO POWINNO DZIALAC, ale nie wiem 
-    # jak to sie bedzie sprawowalo !!!! trzeba przetestowac.
-    
-    if (((substr($header,$cl->{lastgetposafter}+$rest,1))) == 0) { $zero = 1; }
-    if ($zero && ((length($new) % 2) == 0)) { $len++ }
-    if (!$zero && ((length($new) % 2) != 0)) { $len++ }
-
     substr($header,22,2) = pack("n",$len);
 
     my $len2 = unpack("n",substr($header,48,2));
     $len2 = $len2 - length($old) + length($new);
     substr($header,48,2) = pack("n",$len2);
 
-    my $newheader;
-    
-	$newheader = substr($header,0,$cl->{lastgetpos}-2).$newlen.$new;
-	$newheader.= substr($header,$cl->{lastgetposafter},$rest);
-	if ($zero && ((length($new) % 2) == 0)) { $newheader.=pack("C",0); }
-	if (!$zero && ((length($new) % 2) != 0)) { $newheader.=pack("C",0); }
-	$newheader.= substr($header,$cl->{lastgetposafter}+$rest);
+    my $newheader = substr($header,0,$cl->{lastgetpos}-2).pack("n",length($new)).$new.substr($header,$cl->{lastgetposafter});
     $cl->{header} = $newheader;
     return $newheader;
 }
@@ -200,7 +170,6 @@ JFIF.pm v 0.8
 
 =head1 CHANGES
 
- 0.9 - fix caption add 0x00 in some situations. I don't know hwat it is, But have to be.
  0.8 - can set comment (Caption) tag correctly (hihi)
  0.7 - can read all metatags
 
