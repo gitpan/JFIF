@@ -1,193 +1,142 @@
 package JPEG::JFIF;
-$JPEG::JFIF::VERSION = '0.9.3';
+$JPEG::JFIF::VERSION = '0.10.0';
 use strict;
 
 sub new {
     my ($c, %args) = @_;
     my $class = ref($c) || $c;
+
+    my %tagTab = (
+	object_name 			=> 5,
+	category 			=> 15,
+	supplemental_categories 	=> 20,
+	keywords 			=> 25,
+	special_instructions 		=> 40,
+	byline_title 			=> 55,
+	byline 				=> 80,
+	city 				=> 90,
+	province_state 			=> 95,
+	country_name 			=> 101,
+	original_transmission_reference => 103,
+	headline 			=> 105,
+	credit 				=> 110,
+	source 				=> 115,
+	caption 			=> 120,
+	caption_writer 			=> 122,
+	); $args{tagTab} = \%tagTab;
+	
     bless \%args, $class;
 }
 
-sub get {
-    my ($cl,$marker_type_p,$data_set_p) = @_;
-    
-    my $buffer;
-    open(FILE,$cl->{filename}) || die "Can't open file\n";
-    binmode(FILE);
-    
-    read(FILE,$buffer,12);
-    if (unpack("n",substr($buffer,0,2)) != 0xffd8) { die "Not JPEG\n"; }
+sub getdata {
+    my ($cl,$name) = @_;
+    if (!exists($cl->{tagTab}->{$name})) { print STDERR "Tag \"$name\" not supported or misspelled (use lowercase)\n"; return(-1); };
+    my $idsearch = $cl->{tagTab}->{$name};
+    if (!exists($cl->{bim})) { $cl->get8bimheaders(); }
 
-    while ((read(FILE,$buffer,2) || exit()) != 0) {
-	my $currentpos = tell(FILE);
-
-	if (unpack("n",substr($buffer,0,2)) == 0x0404) { # int16 - ID
-
-	    # next 2 bytes 0x0000
-	    read(FILE,$buffer,2); 
-	    
-	    if (unpack("n",substr($buffer,0,2)) == 0x0000) {
-		
-		# int32 - Size
-		read(FILE,$buffer,4); 
-		my $size = unpack("N",substr($buffer,0,4));
-		$cl->{lastoctet} = $size;
-		
-		my $start = tell(FILE);
-		$cl->{last8binpos} = $start;
-		$cl->{lastsize} = $size;
-		for (my $i = 0; $i<$size;$i++) {
-		    seek(FILE,$start + $i,0);
-		    read(FILE,$buffer,1);
-		    my $c = unpack("C",$buffer);
-		    $i += 1; 
-		    
-		    seek(FILE,$start + $i,0);
-		    read(FILE,$buffer,1);
-		    my $marker_type = unpack("C",$buffer);
-
-		    if (($c == 0x1C)) {
-			$i += 1; 
-
-			seek(FILE,$start + $i,0);
-			read(FILE,$buffer,1);
-			my $data_set = unpack("C1",$buffer);
-			++$i;
-			
-			seek(FILE,$start + $i,0);
-			read(FILE,$buffer,2);
-			my $octet_count = unpack("n",$buffer);
-			$i += 2;
-			
-			if ((($data_set == $data_set_p) && ($marker_type == $marker_type_p))) {
-			    seek(FILE,$start + $i,0);
-			    $cl->{lastgetpos} = tell(FILE);
-			    read(FILE,$buffer,$octet_count);
-			    $cl->{lastgetposafter} = tell(FILE);
-			    close(FILE);
-			    return $buffer;
-			}
-			$i += $octet_count;
-		    }
-		    $start--;
+    # parse every 8BIM
+    foreach my $data (values %{$cl->{bim}}) {
+	for(my $i=0 ; $i<length($data) ; $i++) {
+	    if ((my $id = unpack("n",substr($data,$i,2))) == 0x1C02) {
+		$i += 2;
+		if (unpack("C",substr($data,$i,1)) == $idsearch) {
+		    $i++;
+		    # length data in that subset
+    		    my $len = unpack("n",substr($data,$i,2));
+		    $i += 2;
+		    return(substr($data,$i,$len));
 		}
 	    }
+	    
 	}
     }
 }
 
-sub get_raw {
-    my ($cl,$what) = @_;
-    my ($JPEGSTD,$JFIF,$SOS,$RAWIMAGE,$buffer,$HEADER,$ICCPROFILE,$ICCPROFILERAW) = {0,0,0,0,0,0,0,0};
-    open(FILE,$cl->{filename});
+sub get8bimheaders {
+    my ($cl,$header) = @_;
+    if (!exists($cl->{header})) { $header = $cl->getheader(); }
+    my $count == 0;
+    for (my $i=0; $i<$cl->{headsize}; $i++) {
+	if (unpack("N",substr($header,$i,4)) == 0x3842494D) {
+	    $i += 4;
+	    # 8BIM ID
+	    my $id = unpack("n",substr($header,$i,2)); 
+	    $i += 2;
+	    # 8BIM Name
+	    my $titlen = unpack("C",substr($header,$i,1));
+	    $i += 1;
+	    my $tagname;
+	    if ($titlen != 0) { 
+		# Photoshop 6.0
+		$tagname = substr($header,$i,$titlen);
+		$i += $titlen ;
+		# if not parity len then add 0x00 (Adobe bug?!!)
+		if (($titlen % 2) == 0) { $i++; }
+	    } else { 
+		# Photoshop 5.5
+		$i += 1; 
+	    }
+	    # 8BIM Length
+	    my $bimlen = unpack("N",substr($header,$i,4));
+	    $i += 4;
+	    $cl->{bim}->{$count++} = substr($header,$i,$bimlen);
+	    $i += $bimlen;
+	    # if not parity len then add 0x00 (Adobe bug?!!)
+	    if (($bimlen % 2) == 0) { $i--; }
+	}
+    }        
+}
+
+
+
+sub getheader {
+    my $cl = shift;
+    if (!exists($cl->{filename}) || !exists($cl->{file})) { print STDERR "Read file first!\n"; return(-1); }
+    for (my $i = 0;$i<$cl->{size};$i++) {
+	if (unpack("n",substr($cl->{file},$i,2)) == 0xFFED) { 
+	    $cl->{headsize} = unpack("n",substr($cl->{file},$i+2,2))-2;
+	    $cl->{header} = substr($cl->{file},$i+4,$cl->{headsize});
+	    return($cl->{header});
+	}
+    }
+}
+
+
+
+sub check {
+    my $cl = shift;
+    if (!exists($cl->{filename}) || !exists($cl->{file})) { return(-1); }
+    if (unpack("n",substr($cl->{file},0,2)) != 0xFFD8) { print STDERR "Not JPEG file!\n"; return(-1); }
+}
+
+
+
+sub read {
+    my ($cl,$filename) = @_;
+    if (!open(FILE,"<".$filename)) { print STDERR "Couldn't open file $filename!\n"; return(-1); }
     binmode(FILE);
-
-    read(FILE,$buffer, 4);
-    if (unpack("N",$buffer) == 0xFFD8FFE0) { $JPEGSTD = 1; }
-
-    seek(FILE,6,0);
-    read(FILE,$buffer,4);
-    if (unpack("N",$buffer) == 0x4A464946) { $JFIF = 1;  } 
-
-    seek(FILE,0,0);
-    while ((read(FILE,$buffer,2) != 0) && ($SOS == 0) || ($ICCPROFILE == 0)) { 
-    if (unpack("n",$buffer) == 0xFFDA) {
-	$SOS = tell(FILE)-2;
-	}
-
-    if (unpack("n",$buffer) == 0xFFE2) {
-	$ICCPROFILE = tell(FILE)-2;
-	}
-
-    seek(FILE,tell(FILE)-1,0);
-    }
-
-    #IMAGE
-    if ($what eq "RAWIMAGE"){
-	seek(FILE,$SOS,0);
-	while (read(FILE,$buffer,1024) != 0) { $RAWIMAGE.=$buffer; }
-	close(FILE);
-	return $RAWIMAGE;
-     }
-
-    #HEADER
-    if ($what eq "HEADER") {
-	seek(FILE,0,0);
-	read(FILE,$HEADER,$ICCPROFILE);
-	close(FILE);
-	return $HEADER;
-    }
-    
-
-    #ICCPROFILERAW
-    if ($what eq "ICCPROFILE") {
-	seek(FILE,$ICCPROFILE,0);
-	while (read(FILE,$buffer,1024) != 0) { $ICCPROFILERAW.=$buffer; }
-	close(FILE);
-	return $ICCPROFILERAW;
-    }
-    
+    while(read(FILE,my $buffer,1024) != 0) { $cl->{file}.=$buffer; };
+    $cl->{filename} = $filename;
+    $cl->{size} = (stat(FILE))[7];
+    close(FILE);
+    $cl->check();
 }
 
-sub set_comment {
-    my ($cl,$new) = @_;
-    my $old = $cl->get(2,120);
-    my $header = $cl->get_raw("HEADER");
-    my $buffer;
-    my $zero = 0;
-    my $newheader;
-    
-    #$rest - tam gdzie sie zaczyna nastepny 8BIM za 2 120, czlyli 
-    my $rest = $cl->{lastsize} - $cl->{lastgetposafter} + $cl->{last8binpos};
-    
-    my $newlen = pack("n",length($new));
-    #zmieniam dlugosc    
-    # 22 to jest 0xFFED - zmienic na znalezienie i zamiane po tym, a nie tak na sztywno
-    my $len = unpack("n",substr($header,22,2));
-    $len = $len - length($old) + length($new);
 
-    # to pieprzone 0x00 ktore sie pojawia
-    # TEORETYCZNIE W MOIM ODCZUCIU TO POWINNO DZIALAC, ale nie wiem 
-    # jak to sie bedzie sprawowalo !!!! trzeba przetestowac.
-    #######################################################################
-    
-    if (((substr($header,$cl->{lastgetposafter}+$rest,1))) == 0) { $zero = 1; }
-
-    my $end = $zero;
-    for (my $ii=0;$ii<abs(length($old)-length($new));$ii++) { $end = !$end; }
-
-    if (!$end) { $len-- };
-
-    substr($header,22,2) = pack("n",$len);
-
-    my $len2 = unpack("n",substr($header,48,2));
-    $len2 = $len2 - length($old) + length($new);
-    substr($header,48,2) = pack("n",$len2);
-
-    $newheader = substr($header,0,$cl->{lastgetpos}-2).$newlen.$new;
-    $newheader.= substr($header,$cl->{lastgetposafter},$rest);
-    if ($end == 1) { $newheader.=pack("C",0); }
-    $newheader.= substr($header,$cl->{lastgetposafter}+$rest+1);
-    $cl->{header} = $newheader;
-    return $newheader;
-}
 
 sub write {
-    my ($cl,$filename) = @_;
-    open(FILEOUT,">".$filename) || die "Can't create $filename\n";
-    binmode(FILEOUT);
-    print FILEOUT $cl->{header};
-    print FILEOUT $cl->get_raw("ICCPROFILE");
-    close(FILEOUT);
+    my $cl = shift;
+    if (exists($cl->{filename}) || exists($cl->{file})) {
+	open(FILE,">".$cl->{filename}) || print STDERR "Couldn't open file ".$cl->{filename}." for write!\n";
+	binmode(FILE);
+        print FILE $cl->{file};
+	close(FILE);
+    } else { print STDERR "Couldn't write file!\n"; }
 }
 
 1;
 
 __END__
-
-=head1 DOWNLOAD
-
-http://krzak.linux.net.pl/perl/JFIF-0.9.3.tar.gz
 
 =head1 NAME
 
@@ -195,36 +144,52 @@ JPEG::JFIF - JFIF/JPEG tags operations.
 
 =head1 VERSION
 
-JFIF.pm v 0.9.3
+JFIF.pm v 0.10.0
 
 =head1 CHANGES
 
- 0.9.3 - another rule to workaround for that stupid 0x00 in APP14 (I couldn't find it in JFIF documentation)
+ 0.10.0 - rewrite code to support older and newest Adobe Photoshop JPEG/JFIF formats, and to have better API.
+ 0.9.3  - another rule to workaround for that stupid 0x00 in APP14 (I couldn't find it in JFIF documentation)
  0.9 - fix caption add 0x00 in some situations. I don't know what it is, But have to be.
  0.8 - can set comment (Caption) tag correctly (hihi)
  0.7 - can read all metatags
 
 =head1 SYNOPSIS
 
-This module can read and set additional info that is set by Adobe Photoshop in jpeg files (JFIF/JPEG format)
+This module can read additional info that is set by Adobe Photoshop in jpeg files (JFIF/JPEG format)
 
 =head1 DESCRIPTION
 
-This module can read and set additional info that is set by Adobe Photoshop in jpeg files (JFIF/JPEG format)
+This module can read additional info that is set by Adobe Photoshop in jpeg files (JFIF/JPEG format)
+Available sections name for getdata(name) are :
+	object_name
+	category
+	supplemental_categories
+	keywords
+	special_instructions
+	byline_title
+	byline
+	city
+	province_state
+	country_name
+	original_transmission_reference
+	headline
+	credit
+	source
+	caption
+	caption_writer
 
 =head1 EXAMPLE
 
-    use JPEG::JFIF;
-    use strict;
+	#!/usr/bin/perl
 
-    my $jfif = new JPEG::JFIF(filename=>"test.jpg");
-    
-    # this give you "caption" from adobe. All formats are described in IPTC-NAA specification.
-    my $caption = $jfif->get(2,120); 
+	use JPEG::JFIF;
+	use strict;
 
-    $jfif->set_comment("this is my new caption");
-
-    $jfif->write("out.jpg");
+	my $jfif = new JPEG::JFIF;
+	# this give you "caption" tag content.
+	$jfif->read("file.jpg");
+	print $jfif->getdata("caption"); 
 
 =head1 COPYRIGHT
 
