@@ -1,5 +1,5 @@
 package JPEG::JFIF;
-$JPEG::JFIF::VERSION = '0.9';
+$JPEG::JFIF::VERSION = '0.9.2';
 use strict;
 
 sub new {
@@ -196,7 +196,7 @@ JPEG::JFIF - JFIF/JPEG tags operations.
 
 =head1 VERSION
 
-JFIF.pm v 0.8
+JFIF.pm v 0.9.2
 
 =head1 CHANGES
 
