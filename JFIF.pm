@@ -1,7 +1,7 @@
 package JPEG::JFIF;
 
 
-$JPEG::JFIF::VERSION = '0.11';
+$JPEG::JFIF::VERSION = '0.12';
 use strict;
 
 sub new {
@@ -116,7 +116,7 @@ sub getdata {
 sub get8bimheaders {
     my ($cl,$header) = @_;
     if (!exists($cl->{header})) { $header = $cl->getheader(); }
-    my $count == 0;
+    my $count = 0;
     for (my $i=0; $i<$cl->{headsize}; $i++) {
 	if (unpack("N",substr($header,$i,4)) == 0x3842494D) {
 	    $i += 4;
@@ -205,10 +205,11 @@ JPEG::JFIF - JFIF/JPEG tags operations.
 
 =head1 VERSION
 
-JFIF.pm v 0.11
+JFIF.pm v. 0.12
 
 =head1 CHANGES
 
+ 0.12 - Closed ticket #40161
  0.11 - added function getdata_all to retrieve all data as hash from file and some new fields (by Viljo Marrandi)
  0.10 - rewrite code to support older and newest Adobe Photoshop JPEG/JFIF formats, and to have better API.
  0.9.3  - another rule to workaround for that stupid 0x00 in APP14 (I couldn't find it in JFIF documentation)
@@ -261,13 +262,14 @@ Available sections name for getdata(name) are :
 	$jfif->read("file.jpg");
 	print $jfif->getdata("caption"); 
 
-=head1 COPYRIGHT
+=head1 COPYRIGHT AND LICENCE
 
-Copyright 2002-2003 Marcin Krzyzanowski
+Copyright 2002-2008 Marcin Krzyzanowski
+Licence : Lesser General Public License v. 2.0
 
 =head1 AUTHOR
 
-Marcin Krzyzanowski <krzak at linux.net.pl>
-http://krzak.linux.net.pl
+Marcin Krzyzanowski <krzak at hakore.com>
+http://www.hakore.com/
 
 =cut
